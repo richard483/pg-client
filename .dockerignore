@@ -1,0 +1,8 @@
+.git
+.env
+*.exe
+*.test
+coverage.out
+tmp
+dist
+build
