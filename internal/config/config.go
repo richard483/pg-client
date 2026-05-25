@@ -11,43 +11,43 @@ import (
 )
 
 type Config struct {
-	Port                string
-	KarasuIntrospectURL string
-	RequiredAudience    string
-	RequiredScope       string
-	PostgresHost        string
-	PostgresPort        string
-	PostgresUser        string
-	PostgresPassword    string
-	PostgresSSLMode     string
-	QueryTimeout        time.Duration
-	MaxRows             int
-	MaxResponseBytes    int
+	Port             string
+	KarasuVerifyURL  string
+	RequiredAudience string
+	RequiredScope    string
+	PostgresHost     string
+	PostgresPort     string
+	PostgresUser     string
+	PostgresPassword string
+	PostgresSSLMode  string
+	QueryTimeout     time.Duration
+	MaxRows          int
+	MaxResponseBytes int
 }
 
 func Load() (Config, error) {
 	loadDotEnv(".env")
 
 	cfg := Config{
-		Port:                env("PORT", "8090"),
-		KarasuIntrospectURL: env("KARASU_INTROSPECT_URL", "http://127.0.0.1:8080/oauth/introspect"),
-		RequiredAudience:    env("REQUIRED_AUDIENCE", "pg-client-api"),
-		RequiredScope:       env("REQUIRED_SCOPE", "pg-client:execute"),
-		PostgresHost:        env("POSTGRES_HOST", "127.0.0.1"),
-		PostgresPort:        env("POSTGRES_PORT", "5432"),
-		PostgresUser:        env("POSTGRES_USER", "postgres"),
-		PostgresPassword:    env("POSTGRES_PASSWORD", ""),
-		PostgresSSLMode:     env("POSTGRES_SSLMODE", "disable"),
-		QueryTimeout:        time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
-		MaxRows:             envInt("MAX_ROWS", 1000),
-		MaxResponseBytes:    envInt("MAX_RESPONSE_BYTES", 10*1024*1024),
+		Port:             env("PORT", "8090"),
+		KarasuVerifyURL:  karasuVerifyURL(),
+		RequiredAudience: env("REQUIRED_AUDIENCE", "pg-client-api"),
+		RequiredScope:    env("REQUIRED_SCOPE", "pg-client:execute"),
+		PostgresHost:     env("POSTGRES_HOST", "127.0.0.1"),
+		PostgresPort:     env("POSTGRES_PORT", "5432"),
+		PostgresUser:     env("POSTGRES_USER", "postgres"),
+		PostgresPassword: env("POSTGRES_PASSWORD", ""),
+		PostgresSSLMode:  env("POSTGRES_SSLMODE", "disable"),
+		QueryTimeout:     time.Duration(envInt("QUERY_TIMEOUT_SECONDS", 30)) * time.Second,
+		MaxRows:          envInt("MAX_ROWS", 1000),
+		MaxResponseBytes: envInt("MAX_RESPONSE_BYTES", 10*1024*1024),
 	}
 
 	if cfg.PostgresUser == "" {
 		return Config{}, errors.New("POSTGRES_USER is required")
 	}
-	if cfg.KarasuIntrospectURL == "" {
-		return Config{}, errors.New("KARASU_INTROSPECT_URL is required")
+	if cfg.KarasuVerifyURL == "" {
+		return Config{}, errors.New("KARASU_VERIFY_URL is required")
 	}
 	if cfg.MaxRows <= 0 {
 		return Config{}, errors.New("MAX_ROWS must be greater than zero")
@@ -102,6 +102,20 @@ func (c Config) PostgresDSN(database string) string {
 	q.Set("sslmode", c.PostgresSSLMode)
 	u.RawQuery = q.Encode()
 	return u.String()
+}
+
+// karasuVerifyURL resolves the Karasu /oauth/verify endpoint. It prefers
+// KARASU_VERIFY_URL, but if only the legacy KARASU_INTROSPECT_URL is set it
+// derives the verify URL from it (swapping the path) so existing .env files
+// keep working without edits after the move from introspection to verification.
+func karasuVerifyURL() string {
+	if v := strings.TrimSpace(os.Getenv("KARASU_VERIFY_URL")); v != "" {
+		return v
+	}
+	if legacy := strings.TrimSpace(os.Getenv("KARASU_INTROSPECT_URL")); legacy != "" {
+		return strings.Replace(legacy, "/oauth/introspect", "/oauth/verify", 1)
+	}
+	return "http://127.0.0.1:8080/oauth/verify"
 }
 
 func env(key, fallback string) string {

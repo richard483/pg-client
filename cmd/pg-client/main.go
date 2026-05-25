@@ -17,8 +17,8 @@ func main() {
 	}
 
 	handler := server.Handler{
-		Auth: auth.Introspector{
-			URL:              cfg.KarasuIntrospectURL,
+		Auth: auth.Verifier{
+			URL:              cfg.KarasuVerifyURL,
 			RequiredAudience: cfg.RequiredAudience,
 			RequiredScope:    cfg.RequiredScope,
 		},
