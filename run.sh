@@ -26,7 +26,8 @@ Required environment variables:
   CLIENT_PRIVATE_KEY    Path to RSA private key PEM used for client assertion signing
 
 Optional environment variables:
-  TOKEN_AUDIENCE        Default: pg-client-api
+  TOKEN_RESOURCE        Target API (RFC 8707). Default: pg-client-api
+                        (legacy alias TOKEN_AUDIENCE still honored if set)
   TOKEN_SCOPE           Default: pg-client:execute
   KARASU_ASSERTION_AUD  Default: KARASU_TOKEN_URL
 USAGE
@@ -75,7 +76,7 @@ required "PG_CLIENT_URL"
 required "CLIENT_ID"
 required "CLIENT_PRIVATE_KEY"
 
-TOKEN_AUDIENCE="${TOKEN_AUDIENCE:-pg-client-api}"
+TOKEN_RESOURCE="${TOKEN_RESOURCE:-${TOKEN_AUDIENCE:-pg-client-api}}"
 TOKEN_SCOPE="${TOKEN_SCOPE:-pg-client:execute}"
 KARASU_ASSERTION_AUD="${KARASU_ASSERTION_AUD:-$KARASU_TOKEN_URL}"
 
@@ -147,7 +148,7 @@ token_response="$(curl -sS -X POST "$KARASU_TOKEN_URL" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "grant_type=client_credentials" \
   --data-urlencode "client_id=$CLIENT_ID" \
-  --data-urlencode "audience=$TOKEN_AUDIENCE" \
+  --data-urlencode "resource=$TOKEN_RESOURCE" \
   --data-urlencode "scope=$TOKEN_SCOPE" \
   --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
   --data-urlencode "client_assertion=$client_assertion")"
@@ -164,6 +165,10 @@ except Exception as exc:
 
 token = data.get("access_token")
 if not token:
+    err = data.get("error")
+    desc = data.get("error_description")
+    if err:
+        raise SystemExit("Token request failed: %s%s" % (err, " — " + desc if desc else ""))
     raise SystemExit("Token response did not contain access_token: " + json.dumps(data))
 
 print(token)

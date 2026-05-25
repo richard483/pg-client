@@ -2,15 +2,20 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
 
-type Introspector struct {
+// Verifier validates bearer tokens against Karasu's gateway-style verification
+// endpoint (GET /oauth/verify). The bearer being validated is itself the
+// credential, so — unlike RFC 7662 introspection — no separate caller
+// authentication is required. Audience/scope are enforced server-side via the
+// X-Required-Audience / X-Required-Scope request headers; the resolved
+// principal is returned in X-Token-* response headers on success (HTTP 204).
+type Verifier struct {
 	URL              string
 	RequiredAudience string
 	RequiredScope    string
@@ -24,64 +29,52 @@ type Principal struct {
 	Subject  string
 }
 
-type introspectionResponse struct {
-	Active   bool   `json:"active"`
-	ClientID string `json:"client_id"`
-	Scope    string `json:"scope"`
-	Audience string `json:"aud"`
-	Subject  string `json:"sub"`
-}
-
-func (i Introspector) Validate(ctx context.Context, bearerToken string) (Principal, error) {
+func (v Verifier) Validate(ctx context.Context, bearerToken string) (Principal, error) {
 	if strings.TrimSpace(bearerToken) == "" {
 		return Principal{}, errors.New("bearer token is required")
 	}
 
-	client := i.HTTPClient
+	client := v.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
 
-	form := url.Values{}
-	form.Set("token", bearerToken)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.URL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, v.URL, nil)
 	if err != nil {
 		return Principal{}, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Authorization", "Bearer "+bearerToken)
+	if v.RequiredAudience != "" {
+		req.Header.Set("X-Required-Audience", v.RequiredAudience)
+	}
+	if v.RequiredScope != "" {
+		req.Header.Set("X-Required-Scope", v.RequiredScope)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return Principal{}, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Principal{}, errors.New("karasu introspection request failed")
+	switch resp.StatusCode {
+	case http.StatusNoContent:
+		return Principal{
+			ClientID: resp.Header.Get("X-Client-ID"),
+			Scope:    resp.Header.Get("X-Token-Scope"),
+			Audience: resp.Header.Get("X-Token-Audience"),
+			Subject:  resp.Header.Get("X-Token-Subject"),
+		}, nil
+	case http.StatusUnauthorized:
+		return Principal{}, errors.New("token is inactive or invalid")
+	case http.StatusForbidden:
+		return Principal{}, errors.New("token does not satisfy required audience or scope")
+	default:
+		return Principal{}, errors.New("karasu verification request failed")
 	}
-
-	var data introspectionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return Principal{}, err
-	}
-
-	if !data.Active {
-		return Principal{}, errors.New("token is inactive")
-	}
-	if i.RequiredAudience != "" && data.Audience != i.RequiredAudience {
-		return Principal{}, errors.New("token audience is not allowed")
-	}
-	if i.RequiredScope != "" && !hasScope(data.Scope, i.RequiredScope) {
-		return Principal{}, errors.New("token scope is not allowed")
-	}
-
-	return Principal{
-		ClientID: data.ClientID,
-		Scope:    data.Scope,
-		Audience: data.Audience,
-		Subject:  data.Subject,
-	}, nil
 }
 
 func BearerToken(header string) (string, error) {
@@ -90,13 +83,4 @@ func BearerToken(header string) (string, error) {
 		return "", errors.New("Authorization header must be Bearer token")
 	}
 	return strings.TrimSpace(parts[1]), nil
-}
-
-func hasScope(scopeList, required string) bool {
-	for _, scope := range strings.Fields(scopeList) {
-		if scope == required {
-			return true
-		}
-	}
-	return false
 }

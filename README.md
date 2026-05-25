@@ -1,6 +1,7 @@
 # pg-client
 
-Minimal PostgreSQL execution service guarded by Karasu Auth token introspection.
+Minimal PostgreSQL execution service guarded by Karasu Auth token verification
+(`GET /oauth/verify`).
 
 ## Endpoint
 
@@ -18,7 +19,7 @@ Content-Type: application/json
 }
 ```
 
-The bearer token must introspect as active and contain:
+The bearer token must verify as active (Karasu returns `204`) and satisfy:
 
 - `aud`: `pg-client-api`
 - `scope`: `pg-client:execute`
@@ -50,7 +51,7 @@ KARASU_TOKEN_URL=http://127.0.0.1:8080/oauth/token
 PG_CLIENT_URL=http://127.0.0.1:8090/execute
 CLIENT_ID=app_replace_me
 CLIENT_PRIVATE_KEY=./client-private.pem
-TOKEN_AUDIENCE=pg-client-api
+TOKEN_RESOURCE=pg-client-api
 TOKEN_SCOPE=pg-client:execute
 KARASU_ASSERTION_AUD=http://127.0.0.1:8080/oauth/token
 ```
